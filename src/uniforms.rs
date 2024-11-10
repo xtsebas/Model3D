@@ -7,7 +7,7 @@ use crate::Vertex;
 use crate::Obj;
 use crate::Camera;
 use crate::triangle;
-use crate::{vertex_shader, fragment_shader};
+use crate::{vertex_shader};
 use crate::{FastNoiseLite, NoiseType, FractalType};
 
 pub struct Uniforms {
