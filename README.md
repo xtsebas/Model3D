@@ -1,3 +1,7 @@
+en este repositorio se encuentran dos ramas
+### una es de la nave espacial
+### otra de sistema solar
+
 ## VIDEO
 
 
