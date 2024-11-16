@@ -1,7 +1,8 @@
 use nalgebra_glm::{Vec3, Mat4};
 use minifb::{Key, Window, WindowOptions};
-use fastnoise_lite::{FastNoiseLite, NoiseType, FractalType};
 use std::f32::consts::PI;
+use std::sync::Arc;
+use fastnoise_lite::{FastNoiseLite, NoiseType, FractalType};
 
 mod framebuffer;
 mod triangle;
@@ -18,9 +19,16 @@ use framebuffer::Framebuffer;
 use vertex::Vertex;
 use obj::Obj;
 use camera::Camera;
-use triangle::triangle;
 use shaders::{vertex_shader, select_shader};
 use uniforms::{Uniforms, create_noise, create_model_matrix, create_view_matrix, create_perspective_matrix, create_viewport_matrix};
+
+struct Planet {
+    name: &'static str,
+    distance_from_sun: f32,
+    radius: f32,
+    orbit_speed: f32,
+    color_index: usize,
+}
 
 fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: &[Vertex], index: usize) {
     let mut transformed_vertices = Vec::with_capacity(vertex_array.len());
@@ -42,7 +50,7 @@ fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: &[Ve
 
     let mut fragments = Vec::new();
     for tri in &triangles {
-        fragments.extend(triangle(&tri[0], &tri[1], &tri[2]));
+        fragments.extend(triangle::triangle(&tri[0], &tri[1], &tri[2]));
     }
 
     for fragment in fragments {
@@ -57,6 +65,24 @@ fn render(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: &[Ve
     }
 }
 
+fn render_saturn_rings(framebuffer: &mut Framebuffer, uniforms: &Uniforms, vertex_array: &[Vertex], index: usize) {
+    let num_rings = 50;
+    let radius = 10.0;
+    let y_offset = 3.0;
+
+    let saturn_position = Vec3::new(0.0, 0.0, 0.0);
+
+    for i in 0..num_rings {
+        let angle = 2.0 * PI * i as f32 / num_rings as f32;
+        let ring_translation = Vec3::new(radius * angle.cos(), y_offset, radius * angle.sin()) + saturn_position;
+
+        let mut ring_uniforms = uniforms.clone();
+        ring_uniforms.model_matrix = create_model_matrix(ring_translation, 0.2, Vec3::new(0.0, 0.0, 0.0));
+
+        render(framebuffer, &ring_uniforms, vertex_array, index);
+    }
+}
+
 fn main() {
     let window_width = 800;
     let window_height = 600;
@@ -65,17 +91,14 @@ fn main() {
 
     let mut framebuffer = Framebuffer::new(framebuffer_width, framebuffer_height);
     let mut window = Window::new(
-        "Render Planet",
+        "Solar System Simulation",
         window_width,
         window_height,
         WindowOptions::default(),
     )
     .unwrap();
 
-    window.set_position(500, 500);
-    window.update();
-
-    framebuffer.set_background_color(0x333355);
+    framebuffer.set_background_color(0x000000);
 
     let mut camera = Camera::new(
         Vec3::new(0.0, 0.0, 50.0),
@@ -83,9 +106,14 @@ fn main() {
         Vec3::new(0.0, 1.0, 0.0),
     );
 
-    let obj = Obj::load("assets/model/sphere.obj").expect("Failed to load obj");
-    let vertex_arrays = obj.get_vertex_array();
-    let noise = create_noise();
+    // Cargar modelos para los planetas y Saturno
+    let sphere_obj = Obj::load("assets/model/sphere.obj").expect("Failed to load sphere.obj");
+    let sphere_vertex_arrays = sphere_obj.get_vertex_array();
+
+    let rings_obj = Obj::load("assets/model/rings.obj").expect("Failed to load rings.obj");
+    let rings_vertex_arrays = rings_obj.get_vertex_array();
+
+    let noise = Arc::new(create_noise());
     let projection_matrix = create_perspective_matrix(window_width as f32, window_height as f32);
     let viewport_matrix = create_viewport_matrix(framebuffer_width as f32, framebuffer_height as f32);
 
@@ -95,10 +123,21 @@ fn main() {
         projection_matrix,
         viewport_matrix,
         time: 0,
-        noise,
+        noise: noise.clone(),
     };
 
-    let mut selected_planet = 0; // Inicialmente, el sol
+    let planets = vec![
+        Planet { name: "Sol", distance_from_sun: 0.0, radius: 3.0, orbit_speed: 0.001, color_index: 0 },
+        Planet { name: "Mercurio", distance_from_sun: 20.0, radius: 0.5, orbit_speed: 0.003, color_index: 1 },
+        Planet { name: "Venus", distance_from_sun: 40.0, radius: 0.8, orbit_speed: 0.005, color_index: 2 },
+        Planet { name: "Tierra", distance_from_sun: 60.0, radius: 1.0, orbit_speed: 0.007, color_index: 3 },
+        Planet { name: "Marte", distance_from_sun: 80.0, radius: 0.7, orbit_speed: 0.009, color_index: 4 },
+        Planet { name: "Júpiter", distance_from_sun: 100.0, radius: 2.0, orbit_speed: 0.001, color_index: 5 },
+        Planet { name: "Saturno", distance_from_sun: 120.0, radius: 1.8, orbit_speed: 0.003, color_index: 6 },
+        Planet { name: "Urano", distance_from_sun: 140.0, radius: 1.5, orbit_speed: 0.005, color_index: 7 },
+    ];
+
+    let mut time = 0.0;
 
     while window.is_open() {
         if window.is_key_down(Key::Escape) {
@@ -107,24 +146,39 @@ fn main() {
 
         handle_input(&window, &mut camera);
 
-        // Cambiar el planeta seleccionado según la tecla presionada
-        selected_planet = match get_planet_key(&window) {
-            Some(index) => index,
-            None => selected_planet,
-        };
-
         framebuffer.clear();
 
-        // Configurar la matriz de modelo para el planeta seleccionado
-        let translation = Vec3::new(0.0, 0.0, 0.0);
-        let rotation = Vec3::new(0.0, 0.0, 0.0);
-        let scale = if selected_planet == 0 { 1.5 } else { 1.0 }; // Escala mayor para el sol
-
-        uniforms.model_matrix = create_model_matrix(translation, scale, rotation);
         uniforms.view_matrix = create_view_matrix(camera.eye, camera.center, camera.up);
-        uniforms.time += 1;
 
-        render(&mut framebuffer, &uniforms, &vertex_arrays, selected_planet);
+        for planet in &planets {
+            let angle = planet.orbit_speed * time;
+            let translation = Vec3::new(
+                planet.distance_from_sun * angle.cos(),
+                0.0,
+                planet.distance_from_sun * angle.sin(),
+            );
+
+            uniforms.model_matrix = create_model_matrix(translation, planet.radius, Vec3::new(0.0, 0.0, 0.0));
+
+            // Usar el modelo correcto para Saturno
+            if planet.name == "Saturno" {
+                render(&mut framebuffer, &uniforms, &sphere_vertex_arrays, planet.color_index);
+            // Ajustar la posición de los anillos
+            let rings_translation = Vec3::new(
+                translation.x, 
+                translation.y, // Mismo centro en el eje Y
+                translation.z,
+            );
+            let rings_scale = 3.5; // Escalar los anillos para ajustarse alrededor de la esfera
+
+            uniforms.model_matrix = create_model_matrix(rings_translation, rings_scale, Vec3::new(0.0, 0.0, 0.0));
+            render(&mut framebuffer, &uniforms, &rings_vertex_arrays, 8);
+            } else {
+                render(&mut framebuffer, &uniforms, &sphere_vertex_arrays, planet.color_index);
+            }
+        }
+
+        time += 1.0;
 
         window
             .update_with_buffer(&framebuffer.buffer, framebuffer_width, framebuffer_height)
@@ -132,12 +186,12 @@ fn main() {
     }
 }
 
+
 fn handle_input(window: &Window, camera: &mut Camera) {
     let movement_speed = 1.0;
     let rotation_speed = PI / 50.0;
     let zoom_speed = 1.0;
 
-    //  camera orbit controls
     if window.is_key_down(Key::Left) {
         camera.orbit(rotation_speed, 0.0);
     }
@@ -151,7 +205,6 @@ fn handle_input(window: &Window, camera: &mut Camera) {
         camera.orbit(0.0, rotation_speed);
     }
 
-    // Camera movement controls
     let mut movement = Vec3::new(0.0, 0.0, 0.0);
     if window.is_key_down(Key::A) {
         movement.x -= movement_speed;
@@ -169,34 +222,10 @@ fn handle_input(window: &Window, camera: &mut Camera) {
         camera.move_center(movement);
     }
 
-    // Camera zoom controls
     if window.is_key_down(Key::Up) {
         camera.zoom(zoom_speed);
     }
     if window.is_key_down(Key::Down) {
         camera.zoom(-zoom_speed);
-    }
-}
-
-// Función para obtener el índice del planeta según la tecla presionada
-fn get_planet_key(window: &Window) -> Option<usize> {
-    if window.is_key_down(Key::Z) {
-        Some(0) // Sol
-    } else if window.is_key_down(Key::X) {
-        Some(1) // Mercurio
-    } else if window.is_key_down(Key::C) {
-        Some(3) // Venus
-    } else if window.is_key_down(Key::V) {
-        Some(2) // Tierra
-    } else if window.is_key_down(Key::B) {
-        Some(4) // Marte
-    } else if window.is_key_down(Key::N) {
-        Some(5) // Júpiter
-    } else if window.is_key_down(Key::M) {
-        Some(6) // Saturno
-    } else if window.is_key_down(Key::K) {
-        Some(7) // Urano
-    } else {
-        None
     }
 }

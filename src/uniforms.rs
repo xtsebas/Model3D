@@ -1,6 +1,7 @@
 use nalgebra_glm::{Vec3, Mat4, look_at, perspective};
 use minifb::{Key, Window, WindowOptions};
 use std::f32::consts::PI;
+use std::sync::Arc;
 
 use crate::Framebuffer;
 use crate::Vertex;
@@ -10,13 +11,14 @@ use crate::triangle;
 use crate::{vertex_shader};
 use crate::{FastNoiseLite, NoiseType, FractalType};
 
+#[derive(Clone)]
 pub struct Uniforms {
     pub model_matrix: Mat4,
     pub view_matrix: Mat4,
     pub projection_matrix: Mat4,
     pub viewport_matrix: Mat4,
     pub time: u32,
-    pub noise: FastNoiseLite
+    pub noise: Arc<FastNoiseLite>,
 }
 
 pub fn create_noise() -> FastNoiseLite {

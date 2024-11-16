@@ -1,4 +1,5 @@
 use nalgebra_glm::{Vec3, Vec4, Mat3, mat4_to_mat3};
+use nalgebra_glm::Vec2;
 use crate::vertex::Vertex;
 use crate::Uniforms;
 use crate::fragment::Fragment;
@@ -7,6 +8,7 @@ use crate::light::Light;
 use rand::Rng;
 use rand::SeedableRng;
 use rand::rngs::StdRng;
+use fastnoise_lite::FastNoiseLite;
 
 pub fn vertex_shader(vertex: &Vertex, uniforms: &Uniforms) -> Vertex {
   // Transformación de posición base
@@ -66,49 +68,61 @@ pub fn vertex_shader(vertex: &Vertex, uniforms: &Uniforms) -> Vertex {
 
 
 pub fn select_shader(index: usize, fragment: &Fragment, uniforms: &Uniforms) -> Color {
-  let sun_light = Light::new(
-    Vec3::new(0.0, 0.0, 0.0),         // Posición en el origen
-    Color::new(255, 255, 150),       // Color amarillento
-    1.5                               // Intensidad de la luz
-  );
+    match index {
+        0 => sun_shader().0,                           // El Sol
+        1 => mercury_shader(fragment, uniforms),      // Mercurio
+        2 => venus_shader(fragment, uniforms),        // Venus
+        3 => earth_shader(fragment, uniforms),        // Tierra
+        4 => mars_shader(fragment, uniforms),         // Marte
+        5 => jupiter_shader(fragment, uniforms),      // Júpiter
+        6 => saturn_shader(fragment, uniforms),       // Saturno
+        7 => uranus_shader(fragment, uniforms),       // Urano
+        8 => ring_shader(fragment).0,                 // Anillos de Saturno
+        _ => sun_shader().0,                          // Por defecto: el Sol
+    }
+}
+
+fn ring_shader(fragment: &Fragment) -> (Color, u32) {
+    // Coordenadas en 2D para determinar la distancia desde el centro de los anillos
+    let position = Vec2::new(fragment.vertex_position.x as f32, fragment.vertex_position.z as f32); // Usar X y Z para planos
+    let distance_from_center = position.magnitude(); // Calcular la distancia desde el centro
+
+    // Definir el número de bandas y su ancho
+    let num_bands = 4; // Número total de bandas en los anillos
+    let max_distance = 1.0_f32; // Distancia máxima para las bandas (ajustar según el tamaño de los anillos)
+    let band_width = max_distance / num_bands as f32; // Ancho de cada banda
+
+    // Calcular en qué banda está el fragmento actual
+    let band_index = (distance_from_center / band_width).floor() as i32;
+
+    // Variar el color de los anillos en función de su índice
+    let band_colors = [
+        Color::from_hex(0xB0C4DE), // Azul claro
+        Color::from_hex(0x708090), // Gris pizarra
+        Color::from_hex(0xA9A9A9), // Gris claro
+        Color::from_hex(0xF5F5DC), // Beige
+    ];
+
+    // Seleccionar el color basado en el índice de la banda y el número de bandas
+    let color = band_colors[(band_index.abs() % num_bands) as usize % band_colors.len()];
+
+    // Aplicar un efecto de difuminado en los bordes de las bandas
+    let edge_distance = (distance_from_center % band_width) / band_width;
+    let smooth_edge = (1.0_f32 - edge_distance).clamp(0.0_f32, 1.0_f32);
+
+    // Modificar la opacidad para dar un efecto de transparencia a los anillos
+    let final_color = color * smooth_edge;
+
+    (final_color, 0)
+}
 
 
-  match index {
-      0 => sun_shader(fragment, uniforms, &sun_light),       // El Sol
-      1 => mercury_shader(fragment, uniforms),   // Mercurio (puedes crear este shader)
-      2 => earth_shader(fragment, uniforms),     // La Tierra
-      3 => venus_shader(fragment, uniforms),     // Venus (puedes crear este shader)
-      4 => mars_shader(fragment, uniforms),      // Marte
-      5 => jupiter_shader(fragment, uniforms),   // Júpiter
-      6 => saturn_shader(fragment, uniforms),    // Saturno
-      7 => uranus_shader(fragment, uniforms),    // Urano (puedes crear este shader)
-      _ => sun_shader(fragment, uniforms, &sun_light),       // Shader por defecto
+fn sun_shader() -> (Color, u32) {
+    let base_color = Color::from_float(1.0, 0.9, 0.5); // Color amarillo/dorado para el Sol
+    let emission = 100; // Máxima emisión para el efecto de glow/bloom
+  
+    (base_color, emission)
   }
-}
-
-fn apply_lighting(fragment: &Fragment, light: &Light) -> f32 {
-  let light_direction = (light.position - fragment.vertex_position).normalize();
-  let distance = (light.position - fragment.vertex_position).magnitude();
-  let attenuation = 1.0 / (distance * distance);
-  let dot_product = fragment.normal.dot(&light_direction);
-  (dot_product * light.intensity * attenuation).max(0.0)
-}
-
-fn sun_shader(fragment: &Fragment, uniforms: &Uniforms, _light: &Light) -> Color {
-  let base_color = Color::new(255, 200, 50);      // Color cálido base
-  let highlight_color = Color::new(255, 255, 150); // Color de alta intensidad
-
-  // Efecto de pulsación en la superficie
-  let pulsate = ((uniforms.time as f32 * 0.05).sin() * 0.5 + 0.5) * 0.3;
-  let zoom = 50.0;
-  let noise_value = uniforms.noise.get_noise_2d(
-      fragment.vertex_position.x * zoom,
-      fragment.vertex_position.y * zoom,
-  ) + pulsate;
-
-  // Interpolación entre colores para simular la variación en la superficie
-  base_color.lerp(&highlight_color, noise_value)
-}
 
 fn earth_shader(fragment: &Fragment, uniforms: &Uniforms) -> Color {
   // Colores para diferentes biomas
@@ -199,7 +213,10 @@ fn mars_shader(fragment: &Fragment, uniforms: &Uniforms) -> Color {
   }
 }
 
-
+fn jupiter_shader(fragment: &Fragment, uniforms: &Uniforms) -> Color {
+    // Implementación del shader de Júpiter aquí
+    Color::new(255, 200, 0) // Color ejemplo
+}
 
 
 fn saturn_shader(fragment: &Fragment, uniforms: &Uniforms) -> Color {
@@ -221,25 +238,39 @@ fn saturn_shader(fragment: &Fragment, uniforms: &Uniforms) -> Color {
 }
 
 
-fn jupiter_shader(fragment: &Fragment, uniforms: &Uniforms) -> Color {
-  let band_color1 = Color::new(205, 133, 63);    // Color para bandas marrones
-  let band_color2 = Color::new(255, 222, 173);   // Color para bandas claras
-  let storm_color = Color::new(255, 69, 0);      // Rojo para la gran mancha roja
+fn jupiter_gaseous_shader(fragment: &Fragment, uniforms: &Uniforms) -> Color {
+    let base_gas_color = Color::new(255, 223, 128); // Color amarillo suave
 
-  let zoom = 10.0;
-  let y_pos = fragment.vertex_position.y * zoom;
+    // Configurar el ruido para variaciones en el gas
+    let mut noise = FastNoiseLite::new();
+    noise.set_noise_type(Some(fastnoise_lite::NoiseType::Perlin));
+    noise.set_frequency(Some(0.1));
 
-  let band_factor = (y_pos.sin() * 0.5 + 0.5);   // Variación sinusoidal para bandas
+    // Usar la posición del fragmento para calcular una variación de ruido
+    let noise_value = noise.get_noise_2d(fragment.vertex_position.x, fragment.vertex_position.y) * 0.5 + 0.5;
 
-  // Simular la gran mancha roja en una ubicación específica
-  if fragment.vertex_position.x.abs() < 0.3 && fragment.vertex_position.y > 0.5 {
-      storm_color
-  } else if band_factor > 0.5 {
-      band_color1
-  } else {
-      band_color2
-  }
+    // Variar la intensidad del color amarillo basándose en el ruido
+    let intensity = 0.5 + 0.5 * noise_value;
+    let gas_color = Color::new(
+        (base_gas_color.r as f32 * intensity) as u8,
+        (base_gas_color.g as f32 * intensity) as u8,
+        (base_gas_color.b as f32 * intensity) as u8,
+    );
+
+    // Mezcla de un tono más claro para dar una apariencia de gas difuso
+    let overlay_color = Color::new(255, 250, 210);
+    blend_colors(gas_color, overlay_color, 0.3)
 }
+
+// Función para mezclar dos colores con un factor de transparencia (pseudo-gas)
+fn blend_colors(color1: Color, color2: Color, factor: f32) -> Color {
+    Color::new(
+        ((color1.r as f32 * factor + color2.r as f32 * (1.0 - factor)) as u8),
+        ((color1.g as f32 * factor + color2.g as f32 * (1.0 - factor)) as u8),
+        ((color1.b as f32 * factor + color2.b as f32 * (1.0 - factor)) as u8),
+    )
+}
+
 
 
 fn mercury_shader(fragment: &Fragment, uniforms: &Uniforms) -> Color {
