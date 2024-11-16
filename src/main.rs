@@ -101,7 +101,7 @@ fn main() {
     framebuffer.set_background_color(0x000000);
 
     let mut camera = Camera::new(
-        Vec3::new(0.0, 0.0, 50.0),
+        Vec3::new(50.0, 100.0, 250.0),
         Vec3::new(0.0, 0.0, 0.0),
         Vec3::new(0.0, 1.0, 0.0),
     );
@@ -163,16 +163,19 @@ fn main() {
             // Usar el modelo correcto para Saturno
             if planet.name == "Saturno" {
                 render(&mut framebuffer, &uniforms, &sphere_vertex_arrays, planet.color_index);
-            // Ajustar la posición de los anillos
-            let rings_translation = Vec3::new(
-                translation.x, 
-                translation.y, // Mismo centro en el eje Y
-                translation.z,
-            );
-            let rings_scale = 3.5; // Escalar los anillos para ajustarse alrededor de la esfera
 
-            uniforms.model_matrix = create_model_matrix(rings_translation, rings_scale, Vec3::new(0.0, 0.0, 0.0));
-            render(&mut framebuffer, &uniforms, &rings_vertex_arrays, 8);
+                let y_offset = 6.0;
+
+                // Ajustar la posición de los anillos
+                let rings_translation = Vec3::new(
+                    translation.x, 
+                    translation.y + y_offset, // Mismo centro en el eje Y
+                    translation.z,
+                );
+                let rings_scale = 3.5; // Escalar los anillos para ajustarse alrededor de la esfera
+
+                uniforms.model_matrix = create_model_matrix(rings_translation, rings_scale, Vec3::new(0.0, 0.0, 0.0));
+                render(&mut framebuffer, &uniforms, &rings_vertex_arrays, 8);
             } else {
                 render(&mut framebuffer, &uniforms, &sphere_vertex_arrays, planet.color_index);
             }
@@ -207,10 +210,10 @@ fn handle_input(window: &Window, camera: &mut Camera) {
 
     let mut movement = Vec3::new(0.0, 0.0, 0.0);
     if window.is_key_down(Key::A) {
-        movement.x -= movement_speed;
+        movement.x += movement_speed;
     }
     if window.is_key_down(Key::D) {
-        movement.x += movement_speed;
+        movement.x -= movement_speed;
     }
     if window.is_key_down(Key::Q) {
         movement.y += movement_speed;
